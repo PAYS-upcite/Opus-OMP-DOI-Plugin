@@ -34,6 +34,132 @@ class DOIPubIdPlugin extends PubIdPlugin {
 		}
 		return $success;
 	}
+	
+	/**
+	 * @copydoc PKPPubIdPlugin::getPubId()
+	 */
+	function getPubId($pubObject) {
+		
+		// Get the pub id type
+		$pubIdType = $this->getPubIdType();
+
+		// If we already have an assigned pub id, use it.
+		$storedPubId = $pubObject->getStoredPubId($pubIdType);
+		if ($storedPubId) return $storedPubId;
+
+		// Determine the type of the publishing object.
+		$pubObjectType = $this->getPubObjectType($pubObject);
+
+		// Initialize variables for publication objects.
+		$submission = ($pubObjectType == 'Submission' ? $pubObject : null);
+		$representation = ($pubObjectType == 'Representation' ? $pubObject : null);
+		$submissionFile = ($pubObjectType == 'SubmissionFile' ? $pubObject : null);
+		$chapter = ($pubObjectType == 'Chapter' ? $pubObject : null);
+
+		// Get the context id.
+		if ($pubObjectType == 'Submission') {
+			$contextId = $pubObject->getContextId();
+		} else {
+			// Retrieve the submission.
+			if (is_a($pubObject, 'Chapter') || is_a($pubObject, 'Representation')) {
+				$publication = Services::get('publication')->get($pubObject->getData('publicationId'));
+				$submission = Services::get('submission')->get($publication->getData('submissionId'));
+			} else {
+				assert(is_a($pubObject, 'SubmissionFile'));
+				$submission = Services::get('submission')->get($pubObject->getData('submissionId'));
+			}
+			if (!$submission) return null;
+			// Now we can identify the context.
+			$contextId = $submission->getContextId();
+		}
+		// Check the context
+		$context = $this->getContext($contextId);
+		if (!$context) return null;
+		$contextId = $context->getId();
+
+		// Check whether pub ids are enabled for the given object type.
+		$objectTypeEnabled = $this->isObjectTypeEnabled($pubObjectType, $contextId);
+		if (!$objectTypeEnabled) return null;
+
+		// Retrieve the pub id prefix.
+		$pubIdPrefix = $this->getSetting($contextId, $this->getPrefixFieldName());
+		if (empty($pubIdPrefix)) return null;
+
+		// Generate the pub id suffix.
+		$suffixFieldName = $this->getSuffixFieldName();
+		$suffixGenerationStrategy = $this->getSetting($contextId, $suffixFieldName);
+		switch ($suffixGenerationStrategy) {
+			case 'customId':
+				$pubIdSuffix = $pubObject->getData($suffixFieldName);
+				break;
+
+			case 'upcoa':
+				if ($submission && $chapter) {
+					$hashID = substr(hash("crc32b", strval($submission->getId())+"."+strval($chapter->getId())), 0, 6);
+					$pubIdSuffix = $submission->getCurrentPublication()->getData("pub-id::custom-id").".".$hashID;
+				}
+				break;
+
+			case 'pattern':
+				$suffixPatternsFieldNames = $this->getSuffixPatternsFieldNames();
+				$pubIdSuffix = $this->getSetting($contextId, $suffixPatternsFieldNames[$pubObjectType]);
+				
+				// %p - press initials
+				$pubIdSuffix = PKPString::regexp_replace('/%p/', PKPString::strtolower($context->getAcronym($context->getPrimaryLocale())), $pubIdSuffix);
+
+				// %x - custom identifier
+				if ($submission && $submission->getCurrentPublication()->getData("pub-id::custom-id")) {
+					$pubIdSuffix = PKPString::regexp_replace('/%x/', $submission->getCurrentPublication()->getData("pub-id::custom-id"), $pubIdSuffix);
+				}
+
+				if ($submission) {
+					// %m - monograph id
+					$pubIdSuffix = PKPString::regexp_replace('/%m/', $submission->getId(), $pubIdSuffix);
+				}
+
+				if ($chapter) {
+					// %c - chapter id
+					$pubIdSuffix = PKPString::regexp_replace('/%c/', $chapter->getId(), $pubIdSuffix);
+				}
+
+				if ($representation) {
+					// %f - publication format id
+					$pubIdSuffix = PKPString::regexp_replace('/%f/', $representation->getId(), $pubIdSuffix);
+				}
+
+				if ($submissionFile) {
+					// %s - file id
+					$pubIdSuffix = PKPString::regexp_replace('/%s/', $submissionFile->getId(), $pubIdSuffix);
+				}
+				break;
+
+			default:
+				$pubIdSuffix = PKPString::strtolower($context->getAcronym($context->getPrimaryLocale()));
+
+				if ($submission) {
+					$pubIdSuffix .= '.' . $submission->getId();
+				}
+
+				if ($chapter) {
+					$pubIdSuffix .= '.c' . $chapter->getId();
+				}
+
+				if ($representation) {
+					$pubIdSuffix .= '.' . $representation->getId();
+				}
+
+				if ($submissionFile) {
+					$pubIdSuffix .= '.' . $submissionFile->getId();
+				}
+		}
+		if (empty($pubIdSuffix)) return null;
+
+		// Costruct the pub id from prefix and suffix.
+		$pubId = $this->constructPubId($pubIdPrefix, $pubIdSuffix, $contextId);
+
+		return $pubId;
+	}
+
 
 	//
 	// Implement template methods from Plugin.
@@ -183,7 +309,7 @@ class DOIPubIdPlugin extends PubIdPlugin {
 	 * @copydoc PKPPubIdPlugin::getDAOFieldNames()
 	 */
 	function getDAOFieldNames() {
-		return array('pub-id::doi');
+		return array('pub-id::doi', 'pub-id::custom-id');
 	}
 
 	/**
@@ -275,8 +401,8 @@ class DOIPubIdPlugin extends PubIdPlugin {
 	 */
 	public function modifyObjectProperties($hookName, $args) {
 		$props =& $args[0];
-
 		$props[] = 'pub-id::doi';
+		$props[] = 'pub-id::custom-id';
 	}
 
 	/**
@@ -327,7 +453,15 @@ class DOIPubIdPlugin extends PubIdPlugin {
 			$pattern = '%p.%m';
 		} elseif ($suffixType === 'pattern') {
 			$pattern = $this->getSetting($form->submissionContext->getId(), 'doiPublicationSuffixPattern');
+		} elseif ($suffixType === 'upcoa') {
+			$pattern = '%x.'.substr(hash("crc32", strval($form->publication->getData('submissionId'))), 0, 4);
 		}
+
+		$form->addField(new \PKP\components\forms\FieldText('pub-id::custom-id', [
+			'label' => 'Custom Identifier',
+			'description' => 'Custom publication identifier to use for dependant DOIs',
+			'value' => $form->publication->getData('pub-id::custom-id'),
+		]));
 
 		// Add a text field to enter the DOI if no pattern exists
 		if (!$pattern) {

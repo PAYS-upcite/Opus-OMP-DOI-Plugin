@@ -51,6 +51,10 @@
 			{fbvElement type="radio" id="doiSuffixCustomId" name="doiSuffix" value="customId" required="true" label="plugins.pubIds.doi.manager.settings.doiSuffixCustomIdentifier" checked=$doiSuffix|compare:"customId"}
 		{/fbvFormSection}
 		{fbvFormSection list="true"}
+			{fbvElement type="radio" id="doiSuffixUpcoa" name="doiSuffix" value="upcoa" required="true" label="plugins.pubIds.doi.manager.settings.doiSuffixUpcoa" checked=$doiSuffix|compare:"upcoa"}
+			<span class="instruct">{translate key="plugins.pubIds.doi.manager.settings.doiSuffixUpcoa.description"}</span>
+		{/fbvFormSection}
+		{fbvFormSection list="true"}
 			{fbvElement type="radio" id="doiSuffixPattern" name="doiSuffix" value="pattern" label="plugins.pubIds.doi.manager.settings.doiSuffixPattern" checked=$doiSuffix|compare:"pattern"}
 			<p class="pkp_help">{translate key="plugins.pubIds.doi.manager.settings.doiSuffixPattern.example"}</p>
 			{fbvElement type="text" id="doiPublicationSuffixPattern" value=$doiPublicationSuffixPattern label="plugins.pubIds.doi.manager.settings.doiSuffixPattern.submissions" maxlength="40" inline=true size=$fbvStyles.size.MEDIUM}

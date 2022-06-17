@@ -184,3 +184,9 @@ msgstr "File: {$title}"
 
 msgid "plugins.pubIds.doi.editor.preview.objects"
 msgstr "Item"
+
+msgid "plugins.pubIds.doi.manager.settings.doiSuffixUpcoa"
+msgstr "Hash function crc32"
+
+msgid "plugins.pubIds.doi.manager.settings.doiSuffixUpcoa.description"
+msgstr "Pattern as : [Publication Custom Identifier] + '.' + [The hashing of object identifiants]"
